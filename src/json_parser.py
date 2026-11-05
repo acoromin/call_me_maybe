@@ -1,7 +1,7 @@
 from pathlib import Path
 from pydantic import TypeAdapter
 
-from src.models import FunctionModel
+from src.models import FunctionModel, InputPrompt
 
 
 def load_functions(path: str) -> list[FunctionModel]:
@@ -30,8 +30,4 @@ def load_prompts(path: str) -> list[InputPrompt]:
     except ValidationError as e:
         raise ValueError(f"Invalid prompts JSON: {e}")
 
-    return prompts
-
-
-
-    
+    return prompts  

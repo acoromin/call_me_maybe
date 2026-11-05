@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Python tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.flake8_cache/
+.coverage
+htmlcov/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Model weights and caches
+.cache/
+huggingface/
+models/
+*.safetensors
+*.gguf
+*.pt
+*.pth
+
+# Generated output
+data/output/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Temporary files
+*.log
+*.tmp
