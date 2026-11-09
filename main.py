@@ -1,8 +1,8 @@
-from llm_sdk import Small_LLM_Model
+from llm_sdk.llm_sdk import Small_LLM_Model
 from src.json_parser import load_functions, load_prompts
-import numpy as np
 from src.models import FunctionModel
 from src.constraints import ConstrainedDecoder
+import json
 
 def build_context(functions: list[FunctionModel]) -> str:
     context = (
@@ -38,18 +38,29 @@ def main():
     model = Small_LLM_Model()
     constrained = ConstrainedDecoder(model, functions)
     context = build_context(functions)
-    for tokens in constrained.fn_tokens:
-        print(tokens)
-    '''for prompt in prompts:
-        encoded = model.encode(context + prompt.prompt).tolist()[0]
-        output_ids = []
-        for _ in range(50):
-            logits = model.get_logits_from_input_ids(encoded)
-            token_id = int(np.argmax(logits))
-            encoded.append(token_id)
-            output_ids.append(token_id)
-        response = model.decode(output_ids)
-        print(response)'''
+    results = []
+
+    for prompt in prompts:
+        json_prefix = '{"prompt": ' + json.dumps(prompt.prompt) + ', "name": "'
+        input_ids = model.encode(
+            context + prompt.prompt + json_prefix
+            ).tolist()[0]
+        output_ids = model.encode(json_prefix).tolist()[0]
+        name_ids = constrained.generate_function_name(input_ids, output_ids)
+        name = model.decode(name_ids)
+        for fn in functions:
+            if fn.name == name:
+                selected_function = fn
+                break
+
+                
+        result = {
+            "prompt": prompt.prompt,
+            "name": model.decode(name_ids),
+            "parameters": {}
+        }
+        results.append(result)
+    print(json.dumps(results, indent=2))
 
 
 if __name__ == "__main__":
