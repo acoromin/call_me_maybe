@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from src.models import FunctionModel, InputPrompt
 

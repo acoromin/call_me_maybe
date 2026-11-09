@@ -1,8 +1,8 @@
-from llm_sdk.llm_sdk import Small_LLM_Model
+from llm_sdk import Small_LLM_Model
 from src.json_parser import load_functions, load_prompts
 import numpy as np
 from src.models import FunctionModel
-
+from src.constraints import ConstrainedDecoder
 
 def build_context(functions: list[FunctionModel]) -> str:
     context = (
@@ -36,8 +36,11 @@ def main():
         print(e)
         return
     model = Small_LLM_Model()
+    constrained = ConstrainedDecoder(model, functions)
     context = build_context(functions)
-    for prompt in prompts:
+    for tokens in constrained.fn_tokens:
+        print(tokens)
+    '''for prompt in prompts:
         encoded = model.encode(context + prompt.prompt).tolist()[0]
         output_ids = []
         for _ in range(50):
@@ -46,7 +49,7 @@ def main():
             encoded.append(token_id)
             output_ids.append(token_id)
         response = model.decode(output_ids)
-        print(response)
+        print(response)'''
 
 
 if __name__ == "__main__":
