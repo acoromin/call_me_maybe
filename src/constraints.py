@@ -1,6 +1,7 @@
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.models import FunctionModel
 import numpy as np
+import json
 
 class ConstrainedDecoder:
     def __init__(
@@ -12,6 +13,14 @@ class ConstrainedDecoder:
         self.functions = functions
         self.function_tokens = []
         self.build_function_tokens()
+        self.bool_tokens = [
+                self.model.encode(value).tolist()[0]
+                for value in ("true", "false")
+                ]
+        self.int_tokens = []
+        self.float_tokens = []
+        self.str_special_tokens = []
+        self.build_token_constraints()
 
     def build_function_tokens(self) -> None:
         for fn in self.functions:
@@ -54,16 +63,46 @@ class ConstrainedDecoder:
 
         return prefix[:-1]
 
+    def build_token_constraints(self) -> None:
+        vocab_path = self.model.get_path_to_vocab_file()
+        with open(vocab_path, "r") as f:
+            vocab = json.load(f)
+        for token, token_id in vocab.items():
+            if token and all(c in "0123456789-" for c in token):
+                self.int_tokens.append(token_id)
+            if token and all(c in "0123456789.-eE+" for c in token):
+                self.float_tokens.append(token_id)
+            if any(c in '"\\' or ord(c) < 32 for c in token):
+                self.str_special_tokens.append(token_id)
+
     def generate_param_value(
             self,
             input_ids: list[int],
             param_type: str
             ) -> str | int | float | bool:
-        
+       
+        if param_type == "boolean":
+            true_id = self.bool_tokens[0][0]
+            false_id = self.bool_tokens[1][0]
+
+            logits = self.model.get_logits_from_input_ids(input_ids)
+
+            if logits[true_id] >= logits[false_id]:
+                input_ids.append(true_id)
+                return True
+            else:
+                input_ids.append(false_id)
+                return False
+        elif param_type == "integer":
+            candidates = self.int_tokens
+        elif param_type == "number":
+            candidates = self.float_tokens
+        else:
+            raise ValueError(f"Unsupported parameter type {param_type}")
+
         while True:
             logits = self.model.get_logits_from_input_ids(input_ids)
             
-
 
     def generate_parameters(
             self,

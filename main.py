@@ -39,7 +39,15 @@ def main():
     constrained = ConstrainedDecoder(model, functions)
     context = build_context(functions)
     results = []
+    print("INT:", len(constrained.int_tokens))
+    print("FLOAT:", len(constrained.float_tokens))
+    print("STR:", len(constrained.str_special_tokens))
+    print(constrained.bool_tokens)
+    for token_id in constrained.int_tokens[:10]:
+        print(token_id, repr(model.decode([token_id])))
 
+    for token_id in constrained.float_tokens[:10]:
+        print(token_id, repr(model.decode([token_id])))
     for prompt in prompts:
         json_prefix = '{"prompt": ' + json.dumps(prompt.prompt) + ', "name": "'
         input_ids = model.encode(
