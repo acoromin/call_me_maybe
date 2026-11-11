@@ -1,0 +1,27 @@
+[
+  {
+    "prompt": "Set age to 25"
+  },
+  {
+    "prompt": "Set age to 0"
+  },
+  {
+    "prompt": "Set the temperature to -15 degrees Celsius"
+  },
+  {
+    "prompt": "Set the temperature to -42 degrees Celsius"
+  },
+  {
+    "prompt": "Set the item count to 0"
+  },
+  {
+    "prompt": "Set the item count to -123456"
+  },
+  {
+    "prompt": "Enable the feature"
+  },
+  {
+    "prompt": "Disable the feature"
+  }
+]
+

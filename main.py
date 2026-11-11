@@ -3,6 +3,7 @@ from src.json_parser import load_functions, load_prompts
 from src.models import FunctionModel
 from src.constraints import ConstrainedDecoder
 import json
+import argparse
 
 def build_context(functions: list[FunctionModel]) -> str:
     context = (
@@ -28,9 +29,18 @@ def build_context(functions: list[FunctionModel]) -> str:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input", default="data/input/function_calling_tests.json"
+    )
+    parser.add_argument(
+        "--functions_definition",
+        default="data/input/functions_definition.json"
+    )
+    args = parser.parse_args()
     try:
-        functions = load_functions("data/input/functions_definition.json")
-        prompts = load_prompts("data/input/function_calling_tests.json")
+        functions = load_functions(args.functions_definition)
+        prompts = load_prompts(args.input)
     
     except (OSError, ValueError) as e:
         print(e)

@@ -1,0 +1,51 @@
+[
+  {
+    "name": "fn_set_age",
+    "description": "Set a person's age.",
+    "parameters": {
+      "age": {
+        "type": "integer"
+      }
+    },
+    "returns": {
+      "type": "integer"
+    }
+  },
+  {
+    "name": "fn_set_temperature",
+    "description": "Set a temperature in whole degrees Celsius.",
+    "parameters": {
+      "temperature": {
+        "type": "integer"
+      }
+    },
+    "returns": {
+      "type": "integer"
+    }
+  },
+  {
+    "name": "fn_set_count",
+    "description": "Set a count of items.",
+    "parameters": {
+      "count": {
+        "type": "integer"
+      }
+    },
+    "returns": {
+      "type": "integer"
+    }
+  },
+  {
+    "name": "fn_set_enabled",
+    "description": "Enable or disable a feature.",
+    "parameters": {
+      "enabled": {
+        "type": "boolean"
+      }
+    },
+    "returns": {
+      "type": "boolean"
+    }
+  }
+]
+

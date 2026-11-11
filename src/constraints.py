@@ -91,6 +91,7 @@ class ConstrainedDecoder:
     def generate_int(self, input_ids: list[int], stop_char: str) -> int:
         prefix = ""
         stop_id = self.model.encode(stop_char).tolist()[0][0]
+        print("Minus token exists:", "-" in self.int_tokens.values())
         for _ in range(20):
             logits = np.asarray(
                     self.model.get_logits_from_input_ids(input_ids))
@@ -108,6 +109,8 @@ class ConstrainedDecoder:
             select_token = valid_tokens[int(np.argmax(allowed_scores))]
             if select_token == stop_id:
                 return int(prefix)
+            print("PREFIX:", repr(prefix))
+            print("SELECTED:", repr(self.int_tokens[select_token]))
             input_ids.append(select_token)
             prefix += self.int_tokens[select_token]
         raise ValueError("Integer generation exceeded token limit")
