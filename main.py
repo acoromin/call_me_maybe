@@ -39,33 +39,27 @@ def main():
     constrained = ConstrainedDecoder(model, functions)
     context = build_context(functions)
     results = []
-    print("INT:", len(constrained.int_tokens))
-    print("FLOAT:", len(constrained.float_tokens))
-    print("STR:", len(constrained.str_special_tokens))
-    print(constrained.bool_tokens)
-    for token_id in constrained.int_tokens[:10]:
-        print(token_id, repr(model.decode([token_id])))
-
-    for token_id in constrained.float_tokens[:10]:
-        print(token_id, repr(model.decode([token_id])))
     for prompt in prompts:
         json_prefix = '{"prompt": ' + json.dumps(prompt.prompt) + ', "name": "'
         input_ids = model.encode(
             context + prompt.prompt + json_prefix
             ).tolist()[0]
-        output_ids = model.encode(json_prefix).tolist()[0]
-        name_ids = constrained.generate_function_name(input_ids, output_ids)
+        name_ids = constrained.generate_function_name(input_ids)
         name = model.decode(name_ids)
         for fn in functions:
             if fn.name == name:
                 selected_function = fn
                 break
-
-                
+        input_ids.extend(
+            model.encode(', "parameters": {').tolist()[0]
+            )
+        parameters = constrained.generate_parameters(
+            input_ids, selected_function
+            )       
         result = {
             "prompt": prompt.prompt,
-            "name": model.decode(name_ids),
-            "parameters": {}
+            "name": name,
+            "parameters": parameters
         }
         results.append(result)
     print(json.dumps(results, indent=2))

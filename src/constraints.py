@@ -17,9 +17,9 @@ class ConstrainedDecoder:
                 self.model.encode(value).tolist()[0]
                 for value in ("true", "false")
                 ]
-        self.int_tokens = []
-        self.float_tokens = []
-        self.str_special_tokens = []
+        self.int_tokens = {}
+        self.float_tokens = {}
+        self.str_special_tokens = {}
         self.build_token_constraints()
 
     def build_function_tokens(self) -> None:
@@ -37,7 +37,6 @@ class ConstrainedDecoder:
     def generate_function_name(
             self,
             input_ids: list[int],
-            output_ids: list[int],
             ) -> list[int]:
         prefix = []
         while True:
@@ -46,7 +45,6 @@ class ConstrainedDecoder:
                 raise ValueError("No matching functions")
             if len(matches) == 1:
                 input_ids.extend(matches[0][len(prefix):])
-                output_ids.extend(matches[0][len(prefix):])
                 prefix.extend(matches[0][len(prefix):])
                 break
             next_tokens = [match[len(prefix)] for match in matches]
@@ -58,7 +56,6 @@ class ConstrainedDecoder:
                 allowed_scores = logits[next_tokens]
                 select_token = next_tokens[int(np.argmax(allowed_scores))]
             input_ids.append(select_token)
-            output_ids.append(select_token)
             prefix.append(select_token)
 
         return prefix[:-1]
@@ -69,16 +66,57 @@ class ConstrainedDecoder:
             vocab = json.load(f)
         for token, token_id in vocab.items():
             if token and all(c in "0123456789-" for c in token):
-                self.int_tokens.append(token_id)
+                self.int_tokens[token_id] = token
             if token and all(c in "0123456789.-eE+" for c in token):
-                self.float_tokens.append(token_id)
+                self.float_tokens[token] = token_id
             if any(c in '"\\' or ord(c) < 32 for c in token):
-                self.str_special_tokens.append(token_id)
+                self.str_special_tokens[token] = token_id
+
+    def is_valid_integer_prefix(self, prefix: str, token: str) -> bool:
+        number = prefix + token
+
+        if number == "-":
+            return True
+        if number.startswith("-"):
+            number = number[1:]
+        if not number:
+            return False
+        if not all(c in "0123456789" for c in number):
+            return False
+        if len(number) > 1 and number[0] == "0":
+            return False
+
+        return True
+
+    def generate_int(self, input_ids: list[int], stop_char: str) -> int:
+        prefix = ""
+        stop_id = self.model.encode(stop_char).tolist()[0][0]
+        for _ in range(20):
+            logits = np.asarray(
+                    self.model.get_logits_from_input_ids(input_ids))
+            valid_tokens = []
+            for token_id, token in self.int_tokens.items():
+                if self.is_valid_integer_prefix(prefix, token):
+                    valid_tokens.append(token_id)
+            if prefix and prefix != "-":
+                valid_tokens.append(stop_id)
+            if not valid_tokens:
+                raise ValueError(
+                        f"No valid integer tokens for prefix: {prefix!r}"
+                        )
+            allowed_scores = logits[valid_tokens]
+            select_token = valid_tokens[int(np.argmax(allowed_scores))]
+            if select_token == stop_id:
+                return int(prefix)
+            input_ids.append(select_token)
+            prefix += self.int_tokens[select_token]
+        raise ValueError("Integer generation exceeded token limit")
 
     def generate_param_value(
             self,
             input_ids: list[int],
-            param_type: str
+            param_type: str,
+            stop_char: str,
             ) -> str | int | float | bool:
        
         if param_type == "boolean":
@@ -94,25 +132,24 @@ class ConstrainedDecoder:
                 input_ids.append(false_id)
                 return False
         elif param_type == "integer":
-            candidates = self.int_tokens
+            return self.generate_int(input_ids, stop_char)
         elif param_type == "number":
-            candidates = self.float_tokens
+            return "pending"
+        elif param_type == "string":
+            return "pending"
         else:
             raise ValueError(f"Unsupported parameter type {param_type}")
-
-        while True:
-            logits = self.model.get_logits_from_input_ids(input_ids)
-            
 
     def generate_parameters(
             self,
             input_ids: list[int],
             selected_function: FunctionModel,
-            ) -> str:
+            ) -> dict[str, str | int | float | bool]:
         result = {}
         for i, (name, param) in enumerate(selected_function.parameters.items()):
+            stop = "}" if i == len(selected_function.parameters) - 1 else ","
             key = (", " if i > 0 else "") + json.dumps(name) + ": "
             input_ids.extend(self.model.encode(key).tolist()[0])
-            value = self.generate_param_value(input_ids, param.type)
+            value = self.generate_param_value(input_ids, param.type, stop)
             result[name] = value
-        return json.dumps(result)
+        return result
