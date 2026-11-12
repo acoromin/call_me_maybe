@@ -2,15 +2,18 @@ from llm_sdk import Small_LLM_Model
 from src.models import FunctionModel
 import numpy as np
 import json
+import sys
 
 class ConstrainedDecoder:
     def __init__(
             self,
             model: Small_LLM_Model,
             functions: list[FunctionModel],
+            visualize: bool,
             ) -> None:
         self.model = model
         self.functions = functions
+        self.visualize: bool = visualize
         self.function_tokens = []
         self.build_function_tokens()
         self.bool_tokens = [
@@ -21,6 +24,7 @@ class ConstrainedDecoder:
         self.float_tokens = {}
         self.str_special_tokens = {}
         self.str_tokens = {}
+        self.str_valid_cache: dict[str, list[int]] = {}
         self.build_token_constraints()
 
     def build_function_tokens(self) -> None:
@@ -58,6 +62,8 @@ class ConstrainedDecoder:
                 select_token = next_tokens[int(np.argmax(allowed_scores))]
             input_ids.append(select_token)
             prefix.append(select_token)
+        if self.visualize:
+            self.show(f"function -> {self.model.decode(prefix[:-1])}\n")
 
         return prefix[:-1]
 
@@ -225,11 +231,13 @@ class ConstrainedDecoder:
 
         for _ in range(128):
             logits = np.asarray(self.model.get_logits_from_input_ids(input_ids))
-            valid_tokens = [
-                token_id
-                for token_id, token in self.str_tokens.items()
-                if self.check_str_token(state, token)[0]
-            ]
+            if state not in self.str_valid_cache:
+                self.str_valid_cache[state] = [
+                    token_id
+                    for token_id, token in self.str_tokens.items()
+                    if self.check_str_token(state, token)[0]
+                ]
+            valid_tokens = self.str_valid_cache[state].copy()
             if state == "NORMAL":
                 valid_tokens.extend(closing_tokens)
             if not valid_tokens:
@@ -284,6 +292,7 @@ class ConstrainedDecoder:
             selected_function: FunctionModel,
             ) -> dict[str, str | int | float | bool]:
         result = {}
+        label = "parameters -> "
         comma_already_written = False
         for i, (name, param) in enumerate(selected_function.parameters.items()):
             stop = "}" if i == len(selected_function.parameters) - 1 else ","
@@ -292,10 +301,20 @@ class ConstrainedDecoder:
             key += ":" if param.type in ("integer", "number") else ": "
             input_ids.extend(self.model.encode(key).tolist()[0])
             value = self.generate_param_value(input_ids, param.type, stop)
+            if self.visualize:
+                indent = label if i == 0 else " " * len(label)
+                shown_value = json.dumps(value, ensure_ascii=False)
+                self.show(f"{indent}{name} = {shown_value}\n")
             result[name] = value
             comma_already_written = (
                 param.type == "string"
                 and stop == ","
                 and self.str_tokens.get(input_ids[-1]) == '",'
             )
+        if self.visualize and not selected_function.parameters:
+            self.show("parameters -> {}\n")
         return result
+
+    def show(self, text: str) -> None:
+        if self.visualize:
+            print(text, end="", file=sys.stderr, flush=True)

@@ -15,6 +15,20 @@ def load_functions(path: str) -> list[FunctionModel]:
         functions = adapter.validate_json(content)
     except ValidationError as e:
         raise ValueError(f"Invalid functions JSON: {e}")
+    
+    if not functions:
+        raise ValueError("Functions list cannot be empty")
+    seen_names = set()
+    for function in functions:
+        if function.name in seen_names:
+            raise ValueError(f"Duplicate function name: {function.name}")
+        seen_names.add(function.name)
+        for name, param in function.parameters.items():
+            if param.type not in ("string", "number", "integer", "boolean"):
+                raise ValueError(
+                    f"Unsupported type '{param.type}' in "
+                    f"{function.name}.{name}"
+                )
 
     return functions
 

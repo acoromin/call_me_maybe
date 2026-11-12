@@ -19,8 +19,6 @@ htmlcov/
 .env
 .env.*
 !.env.example
-pyproject.toml
-uv.lock
 
 # Model weights and caches
 .cache/
