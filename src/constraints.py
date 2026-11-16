@@ -3,36 +3,48 @@ from src.models import FunctionModel
 import numpy as np
 import json
 import sys
+from typing import cast
+
 
 class ConstrainedDecoder:
+    """Build function calls from tokens allowed by the current JSON position.
+
+    Keep token lookups and string-state caches across generated prompts.
+    """
+
     def __init__(
             self,
             model: Small_LLM_Model,
             functions: list[FunctionModel],
-            visualize: bool,
             ) -> None:
+        """Encode the function choices and index useful vocabulary tokens."""
+
         self.model = model
         self.functions = functions
-        self.visualize: bool = visualize
-        self.function_tokens = []
+        self.demo = False
+        self.function_tokens: list[list[int]] = []
         self.build_function_tokens()
         self.bool_tokens = [
                 self.model.encode(value).tolist()[0]
                 for value in ("true", "false")
                 ]
-        self.int_tokens = {}
-        self.float_tokens = {}
-        self.str_special_tokens = {}
-        self.str_tokens = {}
+        self.int_tokens: dict[int, str] = {}
+        self.float_tokens: dict[int, str] = {}
+        self.str_special_tokens: dict[str, int] = {}
+        self.str_tokens: dict[int, str] = {}
         self.str_valid_cache: dict[str, list[int]] = {}
         self.build_token_constraints()
 
     def build_function_tokens(self) -> None:
+        """Encode function names with the quote that ends the JSON value."""
+
         for fn in self.functions:
             ids = self.model.encode(f'{fn.name}"').tolist()[0]
             self.function_tokens.append(ids)
 
     def get_matching_functions(self, prefix: list[int]) -> list[list[int]]:
+        """Return function encodings that still match the generated IDs."""
+
         matches = []
         for token_ids in self.function_tokens:
             if token_ids[:len(prefix)] == prefix:
@@ -43,7 +55,14 @@ class ConstrainedDecoder:
             self,
             input_ids: list[int],
             ) -> list[int]:
-        prefix = []
+        """Select a function name one token at a time.
+
+        Ask the model only when multiple allowed next tokens remain;
+        append forced tokens directly. Return the name IDs without its quote.
+        """
+
+        prefix: list[int] = []
+        demo_choice_shown = False
         while True:
             matches = self.get_matching_functions(prefix)
             if not matches:
@@ -60,14 +79,25 @@ class ConstrainedDecoder:
                         self.model.get_logits_from_input_ids(input_ids))
                 allowed_scores = logits[next_tokens]
                 select_token = next_tokens[int(np.argmax(allowed_scores))]
+                if self.demo and not demo_choice_shown:
+                    self.show_demo_choice(next_tokens, select_token)
+                    demo_choice_shown = True
             input_ids.append(select_token)
             prefix.append(select_token)
-        if self.visualize:
+        if self.demo and not demo_choice_shown:
+            self.show("  function choice -> forced by constraints\n")
+        if self.demo:
             self.show(f"function -> {self.model.decode(prefix[:-1])}\n")
 
         return prefix[:-1]
 
     def build_token_constraints(self) -> None:
+        """Index tokens usable by the numeric and string generators.
+
+        Numeric candidates use vocabulary text; string candidates use decoded
+        text so later validation sees the characters the model will emit.
+        """
+
         vocab_path = self.model.get_path_to_vocab_file()
         with open(vocab_path, "r") as f:
             vocab = json.load(f)
@@ -81,8 +111,14 @@ class ConstrainedDecoder:
             decoded = self.model.decode([token_id])
             if decoded:
                 self.str_tokens[token_id] = decoded
- 
+
     def is_valid_number_prefix(self, prefix: str, token: str) -> bool:
+        """Allow prefixes of a JSON number with digits and an optional point.
+
+        An unfinished minus or trailing point can be continued, but cannot
+        finish a generated value. Exponent notation is not supported here.
+        """
+
         number = prefix + token
 
         if number == "-":
@@ -103,6 +139,12 @@ class ConstrainedDecoder:
         return True
 
     def generate_number(self, input_ids: list[int], stop_char: str) -> float:
+        """Generate a number from valid continuations and return a float.
+
+        Choose the leading space or minus first, then allow the closing
+        delimiter only after the accumulated number is complete.
+        """
+
         prefix = ""
         space_id = self.model.encode(" ").tolist()[0][0]
         space_minus_id = self.model.encode(" -").tolist()[0][0]
@@ -136,6 +178,11 @@ class ConstrainedDecoder:
         raise ValueError("Number generation exceeded token limit")
 
     def is_valid_integer_prefix(self, prefix: str, token: str) -> bool:
+        """Accept digit or minus tokens that preserve an integer prefix.
+
+        Reject non-digits and leading zeros; a lone minus is only a prefix.
+        """
+
         number = prefix + token
 
         if number == "-":
@@ -152,6 +199,12 @@ class ConstrainedDecoder:
         return True
 
     def generate_int(self, input_ids: list[int], stop_char: str) -> int:
+        """Generate an integer from valid tokens and return its value.
+
+        Choose the leading space or minus first, then permit the closing
+        delimiter only when at least one digit has been generated.
+        """
+
         prefix = ""
         space_id = self.model.encode(" ").tolist()[0][0]
         space_minus_id = self.model.encode(" -").tolist()[0][0]
@@ -185,6 +238,12 @@ class ConstrainedDecoder:
         raise ValueError("Integer generation exceeded token limit")
 
     def check_str_token(self, state: str, token: str) -> tuple[bool, str]:
+        """Check whether token text can continue a JSON string.
+
+        Track normal text, escapes, four hexadecimal digits after ``\\u``,
+        and a closing quote. Return validity and the resulting state.
+        """
+
         for char in token:
             if state == "CLOSED":
                 return False, state
@@ -220,6 +279,12 @@ class ConstrainedDecoder:
         return True, state
 
     def generate_string(self, input_ids: list[int], stop_char: str) -> str:
+        """Generate a quoted JSON string and return the parsed Python text.
+
+        Cache valid token IDs by string state. A closing quote, optionally
+        joined to the delimiter, ends generation when the state allows it.
+        """
+
         state = "NORMAL"
         quote_id = self.model.encode('"').tolist()[0][0]
         input_ids.append(quote_id)
@@ -230,7 +295,9 @@ class ConstrainedDecoder:
         ]
 
         for _ in range(128):
-            logits = np.asarray(self.model.get_logits_from_input_ids(input_ids))
+            logits = np.asarray(
+                self.model.get_logits_from_input_ids(input_ids)
+            )
             if state not in self.str_valid_cache:
                 self.str_valid_cache[state] = [
                     token_id
@@ -248,13 +315,15 @@ class ConstrainedDecoder:
             if selected in closing_tokens:
                 input_ids.append(selected)
                 string_ids.append(selected)
-                return json.loads(self.model.decode(string_ids)[:-1])
+                return cast(
+                    str, json.loads(self.model.decode(string_ids)[:-1])
+                )
             token = self.str_tokens[selected]
             _, state = self.check_str_token(state, token)
             input_ids.append(selected)
             string_ids.append(selected)
             if state == "CLOSED":
-                return json.loads(self.model.decode(string_ids))
+                return cast(str, json.loads(self.model.decode(string_ids)))
 
         raise ValueError("String generation exceeded token limit")
 
@@ -264,7 +333,12 @@ class ConstrainedDecoder:
             param_type: str,
             stop_char: str,
             ) -> str | int | float | bool:
-       
+        """Dispatch to the generator for a parameter's declared type.
+
+        Boolean values are selected directly between the encoded true and
+        false tokens; other types use their constrained generators.
+        """
+
         if param_type == "boolean":
             true_id = self.bool_tokens[0][0]
             false_id = self.bool_tokens[1][0]
@@ -291,30 +365,77 @@ class ConstrainedDecoder:
             input_ids: list[int],
             selected_function: FunctionModel,
             ) -> dict[str, str | int | float | bool]:
+        """Generate parameters in definition order and collect their values.
+
+        Add each JSON key to the model input before generating its value;
+        pass the expected delimiter to the value generator.
+        """
+
         result = {}
         label = "parameters -> "
         comma_already_written = False
-        for i, (name, param) in enumerate(selected_function.parameters.items()):
+        for i, (name, param) in enumerate(
+            selected_function.parameters.items()
+        ):
             stop = "}" if i == len(selected_function.parameters) - 1 else ","
             separator = " " if comma_already_written else ", "
             key = (separator if i > 0 else "") + json.dumps(name)
             key += ":" if param.type in ("integer", "number") else ": "
             input_ids.extend(self.model.encode(key).tolist()[0])
+            value_start = len(input_ids)
             value = self.generate_param_value(input_ids, param.type, stop)
-            if self.visualize:
+            if self.demo:
                 indent = label if i == 0 else " " * len(label)
                 shown_value = json.dumps(value, ensure_ascii=False)
                 self.show(f"{indent}{name} = {shown_value}\n")
+                value_ids = input_ids[value_start:]
+                self.show_demo_tokens(
+                    f"value {name}", value_ids,
+                    self.model.decode(value_ids),
+                )
             result[name] = value
             comma_already_written = (
                 param.type == "string"
                 and stop == ","
                 and self.str_tokens.get(input_ids[-1]) == '",'
             )
-        if self.visualize and not selected_function.parameters:
+        if self.demo and not selected_function.parameters:
             self.show("parameters -> {}\n")
         return result
 
     def show(self, text: str) -> None:
-        if self.visualize:
-            print(text, end="", file=sys.stderr, flush=True)
+        """Write generation progress to standard error."""
+
+        print(text, end="", file=sys.stderr, flush=True)
+
+    def show_demo_input(self, input_ids: list[int]) -> None:
+        """Show a short preview of the encoded model input."""
+
+        if self.demo:
+            self.show(
+                f"  encoded input -> {len(input_ids)} IDs; "
+                f"last 8: {input_ids[-8:]}\n"
+            )
+
+    def show_demo_choice(
+            self, allowed_ids: list[int], selected_id: int
+            ) -> None:
+        """Show the allowed next IDs and the ID selected by the model."""
+
+        unique_ids = list(dict.fromkeys(allowed_ids))
+        self.show(
+            f"  allowed next IDs -> {unique_ids[:8]} "
+            f"({len(unique_ids)} total)\n"
+            f"  selected ID -> {selected_id}\n"
+        )
+
+    def show_demo_tokens(
+            self, label: str, token_ids: list[int], decoded: str
+            ) -> None:
+        """Show how generated IDs decode into a function or value."""
+
+        if self.demo:
+            self.show(
+                f"  {label} IDs -> {token_ids}\n"
+                f"  {label} decoded -> {decoded!r}\n"
+            )

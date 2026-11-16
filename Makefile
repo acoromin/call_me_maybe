@@ -1,9 +1,12 @@
-.PHONY: install run debug clean lint test test-model visualize prepare
+.PHONY: install run debug clean lint test prepare
 
 # Pass command-line options with: make run ARGS="--input path/to/prompts.json"
 ARGS ?=
 GOINFRE ?= 0
 GOINFRE_ROOT ?= /sgoinfre/students/$(USER)/call_me_maybe
+FLAKE8_EXCLUDE := .git,.venv,__pycache__,.mypy_cache
+FLAKE8_EXCLUDE := $(FLAKE8_EXCLUDE),.pytest_cache,.ruff_cache
+FLAKE8_EXCLUDE := $(FLAKE8_EXCLUDE),llm_sdk
 
 ifeq ($(GOINFRE),1)
 export UV_CACHE_DIR := $(GOINFRE_ROOT)/uv-cache
@@ -26,22 +29,16 @@ run: prepare
 debug: prepare
 	uv run python -m pdb -m src $(ARGS)
 
-visualize: prepare
-	uv run python -m src --visualize $(ARGS)
-
 test: prepare
 	uv run python -m unittest discover -s tests -p 'test_*.py' -v
 
-test-model: prepare
-	CALLME_RUN_MODEL_TESTS=1 uv run python -m unittest \
-		discover -s tests -p 'test_*.py' -v
-
 lint: prepare
-	uv run --with flake8 flake8 .
-	uv run --with mypy mypy . \
+	uv run --with flake8 flake8 . --exclude=$(FLAKE8_EXCLUDE)
+	MYPYPATH=llm_sdk uv run --with mypy mypy . \
 		--warn-return-any --warn-unused-ignores \
 		--ignore-missing-imports --disallow-untyped-defs \
-		--check-untyped-defs --explicit-package-bases
+		--check-untyped-defs --explicit-package-bases \
+		--exclude '^llm_sdk/'
 
 clean:
 	find src tests llm_sdk -type d -name '__pycache__' -prune -exec rm -rf {} +

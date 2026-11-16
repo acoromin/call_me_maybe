@@ -5,6 +5,12 @@ from src.models import FunctionModel, InputPrompt
 
 
 def load_functions(path: str) -> list[FunctionModel]:
+    """Read function definitions and validate their usable types.
+
+    Reject an empty list, duplicate names, and parameter types the
+    generators cannot handle.
+    """
+
     try:
         content = Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeError) as e:
@@ -15,7 +21,7 @@ def load_functions(path: str) -> list[FunctionModel]:
         functions = adapter.validate_json(content)
     except ValidationError as e:
         raise ValueError(f"Invalid functions JSON: {e}")
-    
+
     if not functions:
         raise ValueError("Functions list cannot be empty")
     seen_names = set()
@@ -32,7 +38,10 @@ def load_functions(path: str) -> list[FunctionModel]:
 
     return functions
 
+
 def load_prompts(path: str) -> list[InputPrompt]:
+    """Load and validate prompts from a JSON file."""
+
     try:
         content = Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeError) as e:
@@ -44,4 +53,4 @@ def load_prompts(path: str) -> list[InputPrompt]:
     except ValidationError as e:
         raise ValueError(f"Invalid prompts JSON: {e}")
 
-    return prompts  
+    return prompts
