@@ -80,8 +80,10 @@ def main() -> None:
                 if attempt == 1:
                     retry_context += (
                         f"\nPrevious generation failed: {error_message}\n"
-                        "Retry the function call, avoiding the previous failure.\n"
-                        "Preserve the exact argument values from the user request.\n"
+                        "Retry the function call, avoiding the previous "
+                        "failure.\n"
+                        "Preserve the exact argument values from the user "
+                        "request.\n"
                     )
                     system_message = (
                         "<|im_start|>system\n"
@@ -96,10 +98,17 @@ def main() -> None:
                     + prompt.prompt
                     + "<|im_end|>\n"
                 )
-                assistant_start = "<|im_start|>assistant\n<think>\n\n</think>\n\n"
-                json_prefix = '{"prompt": ' + json.dumps(prompt.prompt) + ', "name": "'
+                assistant_start = (
+                    "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+                )
+                json_prefix = (
+                    '{"prompt": ' + json.dumps(prompt.prompt) + ', "name": "'
+                )
                 input_ids = model.encode(
-                    system_message + user_message + assistant_start + json_prefix
+                    system_message
+                    + user_message
+                    + assistant_start
+                    + json_prefix
                 ).tolist()[0]
                 constrained.show_demo_input(input_ids)
                 name_ids = constrained.generate_function_name(input_ids)
@@ -120,6 +129,7 @@ def main() -> None:
                     "name": name,
                     "parameters": parameters
                 }
+                constrained.validate_output(result)
                 results.append(result)
                 print(
                     f"JSON -> {json.dumps(result, ensure_ascii=False)}\n",

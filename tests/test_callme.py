@@ -5,11 +5,16 @@ import re
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, ClassVar, cast
+from unittest.mock import MagicMock, patch
 
+from src.__main__ import main
 from src.json_parser import load_functions, load_prompts
+from src.models import InputPrompt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,6 +119,55 @@ class TestCallMe(unittest.TestCase):
             re.sub(args["regex"], args["replacement"], args["source_string"]),
             "Pr*gr*mm*ng *s f*n",
         )
+
+
+class TestRetry(unittest.TestCase):
+    """Check the retry flow without loading Qwen."""
+
+    def test_retry_uses_feedback_and_resets_context(self) -> None:
+        """Retry one failure, then start the next prompt without feedback."""
+        model = MagicMock()
+        model.encode.return_value.tolist.return_value = [[1]]
+        model.decode.return_value = "fn_greet"
+        decoder = MagicMock()
+        decoder.generate_function_name.return_value = [1]
+        decoder.generate_parameters.side_effect = [
+            ValueError("String generation exceeded token limit"),
+            {"name": "Alice"},
+            {"name": "Bob"},
+        ]
+        prompts = [InputPrompt(prompt="Greet Alice"),
+                   InputPrompt(prompt="Greet Bob")]
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "results.json"
+            log = StringIO()
+            with (
+                patch("src.__main__.Small_LLM_Model", return_value=model),
+                patch("src.__main__.ConstrainedDecoder", return_value=decoder),
+                patch("src.__main__.load_prompts", return_value=prompts),
+                patch.object(sys, "argv", ["src", "--output", str(output)]),
+                redirect_stdout(log),
+                redirect_stderr(StringIO()),
+            ):
+                main()
+
+            contexts = [
+                call.args[0] for call in model.encode.call_args_list
+                if call.args[0].startswith("<|im_start|>system")
+            ]
+            results = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(contexts), 3)
+        self.assertNotIn("Previous generation failed", contexts[0])
+        self.assertIn("String generation exceeded token limit", contexts[1])
+        self.assertNotIn("Previous generation failed", contexts[2])
+        self.assertEqual(decoder.generate_parameters.call_count, 3)
+        self.assertEqual(
+            [result["parameters"]["name"] for result in results],
+            ["Alice", "Bob"],
+        )
+        self.assertIn("Generation failed", log.getvalue())
 
 
 if __name__ == "__main__":

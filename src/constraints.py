@@ -1,8 +1,9 @@
 from llm_sdk import Small_LLM_Model
-from src.models import FunctionModel
+from src.models import FunctionCall, FunctionModel
 import numpy as np
 import json
 import sys
+from collections.abc import Mapping
 from typing import cast
 
 
@@ -402,6 +403,34 @@ class ConstrainedDecoder:
         if self.demo and not selected_function.parameters:
             self.show("parameters -> {}\n")
         return result
+
+    def validate_output(self, result: Mapping[str, object]) -> None:
+        """Validate the result shape and the chosen function's parameters."""
+
+        if set(result) != {"prompt", "name", "parameters"}:
+            raise ValueError("Output must contain prompt, name and parameters")
+        call = FunctionCall.model_validate(result, strict=True)
+        selected_function = next(
+            (fn for fn in self.functions if fn.name == call.name), None
+        )
+        if selected_function is None:
+            raise ValueError(f"Unknown function in output: {call.name}")
+        if set(call.parameters) != set(selected_function.parameters):
+            raise ValueError(f"Incorrect parameters for {call.name}")
+
+        allowed_types = {
+            "string": (str,),
+            "integer": (int,),
+            "number": (int, float),
+            "boolean": (bool,),
+        }
+        for name, param in selected_function.parameters.items():
+            expected = allowed_types.get(param.type)
+            if expected is None or type(call.parameters[name]) not in expected:
+                raise ValueError(
+                    f"Incorrect type for {call.name}.{name}: "
+                    f"expected {param.type}"
+                )
 
     def show(self, text: str) -> None:
         """Write generation progress to standard error."""

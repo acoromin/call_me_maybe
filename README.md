@@ -39,9 +39,10 @@ uv run python -m src \
 `make install` and `make run` provide shortcuts. To pass paths through Make, use
 `make run ARGS="--input path/to/prompts.json --functions_definition path/to/functions.json --output path/to/results.json"`.
 `make debug` runs the program under `pdb`; `make clean` removes Python caches; and
-`make lint` runs flake8 and mypy. On 42 machines, `make install GOINFRE=1` and
-`make run GOINFRE=1` place the virtual environment, uv cache, and Hugging Face cache
-under `/sgoinfre/students/$USER/call_me_maybe`.
+`make lint` runs flake8 and mypy. The Makefile defaults to `GOINFRE=1` and stores
+the virtual environment and caches under `/home/acoromin/sgoinfre/call_me_maybe`.
+Set `GOINFRE_ROOT` to use a different location, or `GOINFRE=0` to use the project
+environment.
 
 During a run, the first prompt displays a short demonstration of token IDs, the
 restricted function-name choice, and decoded values. Later prompts display progress
@@ -82,8 +83,10 @@ and return type. Input prompts are objects with a `prompt` string.
    text keeps a valid numeric prefix and stops only at a valid endpoint. For strings,
    a small state machine handles ordinary text, escapes, Unicode escape digits,
    and the closing quote. Generated strings are parsed with `json.loads`.
-5. The resulting Python values are serialized with `json.dumps` into the final JSON
-   array. The program reports input and output errors with a short message.
+5. Before storing each call, Pydantic checks its output shape and the decoder checks
+   its function name, required parameter names, and parameter types against the
+   selected definition. The values are then serialized with `json.dumps` into the
+   final JSON array. The program reports input and output errors with a short message.
 
 Token IDs and their text are stored in dictionaries during initialization, so
 generation can look up candidate text without decoding the same token repeatedly.
@@ -94,8 +97,9 @@ and decisions already produced during generation; it adds no model inference cal
 
 The stored output for the 11 supplied public prompts was checked against the
 expected calls and gave 11/11 correct results. Runs of this set on the development
-laptop took roughly 75–80 seconds; hardware, model download, and input size affect
-the time. The under-five-minute target still needs verification on a 42 machine.
+laptop took roughly 75–80 seconds. A run on a 42 machine took about two and a half
+minutes, below the five-minute target. Hardware, model download, and input size
+affect the time.
 
 Constrained candidates and final JSON serialization reduce malformed output. These
 measurements do not prove perfect accuracy or valid output for every possible
@@ -118,41 +122,59 @@ implemented in the numeric prefix validator.
 
 ## Testing strategy
 
-Run the seven checks in `tests/test_callme.py` with:
+Run the eight checks in `tests/test_callme.py` with:
 
 ```sh
 make test
 ```
 
-The suite runs the real model against the supplied public inputs and the additional
-integer/boolean inputs in `tests/`. It checks booleans, numbers, integers, strings,
+Seven checks use the real model against the supplied public inputs and the additional
+integer/boolean inputs in `tests/`. They cover booleans, numbers, integers, strings,
 regex behavior, input validation, and output structure. The two model runs are
-shared across the checks to avoid loading Qwen seven times. Manual checks also
-included malformed JSON, unavailable input files, and output write errors.
+shared across those checks. One separate check simulates a generation failure and
+verifies that the retry receives the error, produces one result, and does not pass
+the error to the next prompt. It does not load Qwen. Manual checks also included
+malformed JSON, unavailable input files, and output write errors.
 
 The test suite expects `tests/prompts_test.json` and `tests/function_test.json` to
 be present. Tests can take around two minutes on the development laptop because
 they run real inference.
 
+To demonstrate only the retry check without loading the model, run:
+
+```sh
+uv run python -m unittest discover -s tests -p 'test_callme.py' -k retry -v
+```
+
 ## Bonus features
 
-- **Visualization of the generation process:** The first prompt prints a detailed
-  trace of function selection and parameter generation. Later prompts show their
-  progress and completed JSON without repeating the detailed trace. The full
-  result is still written to the output file.
-- **Encoding and decoding demonstration:** The first prompt shows the number of
-  encoded input IDs, a sample of those IDs, the allowed next function-name IDs,
-  the selected ID, and the token IDs and decoded text for the function name and
-  parameter values. This makes the link between tokenization and constrained
-  choices visible during a real run.
-- **Performance optimizations:** Candidate token IDs and their text are prepared
-  once and kept in dictionaries. Valid string tokens are cached by parser state.
-  During function-name generation, a shared next token or the rest of a single
-  remaining function is appended without another model inference call. These
-  optimizations do not rely on batching.
-- **Test suite:** Seven readable checks cover `boolean`, `number`, `integer`,
-  `string`, regex substitution, input validation, and output format. Two runs of
-  the real model are shared across the checks.
+- **Visualization of the generation process:** Run `uv run python -m src`. Each
+  prompt shows its request and completed JSON. The first prompt also shows the
+  selected function, generated parameters, and a short token-level trace; later
+  prompts omit that detail to keep the display readable. Progress goes to
+  standard error, while the complete JSON array is written to the output file.
+- **Demonstration of how encoding and decoding integrate with constrained decoding:**
+  During the first prompt, the same run shows a sample of encoded input IDs,
+  the allowed next IDs for function selection, the selected ID, and generated
+  IDs beside their decoded text. This displays decisions already made during
+  generation and adds no model inference calls.
+- **Performance optimizations:** Vocabulary token IDs and text are indexed once,
+  so generation need not decode each candidate repeatedly. Valid string IDs are
+  cached by parser state. Shared function-name tokens and the remainder of a
+  single candidate are appended without asking the model for more logits. These
+  optimizations do not use batching; the 42 run took about two and a half minutes.
+- **Comprehensive test suite:** `make test` runs eight checks in one file. Seven
+  inspect two shared real-model runs; the retry check uses a simulated failure so
+  it is deterministic. Use the retry-only command above to demonstrate that
+  branch quickly during an evaluation.
+- **Advanced error recovery mechanisms:** Each prompt allows up to two attempts.
+  If generation or output validation raises `ValueError`, the second attempt starts
+  with a fresh token context and adds the first error to the model instructions.
+  Errors do not carry over to the next prompt. If both attempts fail, the program
+  reports the error instead of writing a partial output file. A normal run shows
+  no retry messages; a failed attempt prints `Generation failed: ...` before the
+  prompt is attempted again. The retry test verifies this control flow, not that
+  Qwen can correct every mistaken argument value.
 
 ## Resources
 
