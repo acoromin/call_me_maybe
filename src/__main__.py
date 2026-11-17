@@ -69,47 +69,69 @@ def main() -> None:
     model = Small_LLM_Model()
     constrained = ConstrainedDecoder(model, functions)
     context = build_context(functions)
-    system_message = "<|im_start|>system\n" + context + "<|im_end|>\n"
     results = []
     for i, prompt in enumerate(prompts, start=1):
-        constrained.demo = i == 1
-        progress = f"[{i}/{len(prompts)}] Prompt: {prompt.prompt}\n"
-        constrained.show(progress)
-        user_message = (
-            "<|im_start|>user\n"
-            + prompt.prompt
-            + "<|im_end|>\n"
-        )
-        assistant_start = "<|im_start|>assistant\n<think>\n\n</think>\n\n"
-        json_prefix = '{"prompt": ' + json.dumps(prompt.prompt) + ', "name": "'
-        input_ids = model.encode(
-            system_message + user_message + assistant_start + json_prefix
-        ).tolist()[0]
-        constrained.show_demo_input(input_ids)
-        name_ids = constrained.generate_function_name(input_ids)
-        name = model.decode(name_ids)
-        constrained.show_demo_tokens("function", name_ids, name)
-        for fn in functions:
-            if fn.name == name:
-                selected_function = fn
+        system_message = "<|im_start|>system\n" + context + "<|im_end|>\n"
+        error_message = ""
+        for attempt in range(2):
+            try:
+                retry_context = context
+
+                if attempt == 1:
+                    retry_context += (
+                        f"\nPrevious generation failed: {error_message}\n"
+                        "Retry the function call, avoiding the previous failure.\n"
+                        "Preserve the exact argument values from the user request.\n"
+                    )
+                    system_message = (
+                        "<|im_start|>system\n"
+                        + retry_context
+                        + "<|im_end|>\n"
+                    )
+                constrained.demo = i == 1
+                progress = f"[{i}/{len(prompts)}] Prompt: {prompt.prompt}\n"
+                constrained.show(progress)
+                user_message = (
+                    "<|im_start|>user\n"
+                    + prompt.prompt
+                    + "<|im_end|>\n"
+                )
+                assistant_start = "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+                json_prefix = '{"prompt": ' + json.dumps(prompt.prompt) + ', "name": "'
+                input_ids = model.encode(
+                    system_message + user_message + assistant_start + json_prefix
+                ).tolist()[0]
+                constrained.show_demo_input(input_ids)
+                name_ids = constrained.generate_function_name(input_ids)
+                name = model.decode(name_ids)
+                constrained.show_demo_tokens("function", name_ids, name)
+                for fn in functions:
+                    if fn.name == name:
+                        selected_function = fn
+                        break
+                input_ids.extend(
+                    model.encode(', "parameters": {').tolist()[0]
+                    )
+                parameters = constrained.generate_parameters(
+                    input_ids, selected_function
+                    )
+                result = {
+                    "prompt": prompt.prompt,
+                    "name": name,
+                    "parameters": parameters
+                }
+                results.append(result)
+                print(
+                    f"JSON -> {json.dumps(result, ensure_ascii=False)}\n",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 break
-        input_ids.extend(
-            model.encode(', "parameters": {').tolist()[0]
-            )
-        parameters = constrained.generate_parameters(
-            input_ids, selected_function
-            )
-        result = {
-            "prompt": prompt.prompt,
-            "name": name,
-            "parameters": parameters
-        }
-        results.append(result)
-        print(
-            f"JSON -> {json.dumps(result, ensure_ascii=False)}\n",
-            file=sys.stderr,
-            flush=True,
-        )
+            except ValueError as e:
+                error_message = str(e)
+                print(f"Generation failed: {e}")
+                if attempt == 1:
+                    raise
     output_path = Path(args.output)
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
