@@ -112,7 +112,7 @@ def main() -> None:
                 ).tolist()[0]
                 constrained.show_demo_input(input_ids)
                 name_ids = constrained.generate_function_name(input_ids)
-                name = model.decode(name_ids)
+                name = model.decode(name_ids).removesuffix('"')
                 constrained.show_demo_tokens("function", name_ids, name)
                 for fn in functions:
                     if fn.name == name:

@@ -87,10 +87,12 @@ class ConstrainedDecoder:
             prefix.append(select_token)
         if self.demo and not demo_choice_shown:
             self.show("  function choice -> forced by constraints\n")
-        if self.demo:
-            self.show(f"function -> {self.model.decode(prefix[:-1])}\n")
+        name = self.model.decode(prefix).removesuffix('"')
 
-        return prefix[:-1]
+        if self.demo:
+            self.show(f"function -> {name}\n")
+
+        return prefix
 
     def build_token_constraints(self) -> None:
         """Index tokens usable by the numeric and string generators.
