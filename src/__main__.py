@@ -66,7 +66,10 @@ def main() -> None:
 
     except (OSError, ValueError) as e:
         raise SystemExit(f"Error: {e}")
-    model = Small_LLM_Model()
+    try:
+        model = Small_LLM_Model()
+    except Exception as e:
+        raise SystemExit(f"Error initializing LLM: {e}") from None
     constrained = ConstrainedDecoder(model, functions)
     context = build_context(functions)
     results = []
