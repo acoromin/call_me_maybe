@@ -3,7 +3,7 @@
 # Pass command-line options with: make run ARGS="--input path/to/prompts.json"
 ARGS ?=
 GOINFRE ?= 1
-GOINFRE_ROOT ?= /home/acoromin/sgoinfre/call_me_maybe
+GOINFRE_ROOT ?= /home/acoromin/goinfre/call_me_maybe
 FLAKE8_EXCLUDE := .git,.venv,__pycache__,.mypy_cache
 FLAKE8_EXCLUDE := $(FLAKE8_EXCLUDE),.pytest_cache,.ruff_cache
 FLAKE8_EXCLUDE := $(FLAKE8_EXCLUDE),llm_sdk
@@ -29,8 +29,8 @@ run: prepare
 debug: prepare
 	uv run python -m pdb -m src $(ARGS)
 
-test: prepare
-	uv run python -m unittest discover -s tests -p 'test_*.py' -v
+test:
+	uv run python -m pytest tests/test_* -v
 
 lint: prepare
 	uv run --with flake8 flake8 . --exclude=$(FLAKE8_EXCLUDE)
