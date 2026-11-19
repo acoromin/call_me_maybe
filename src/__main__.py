@@ -57,7 +57,7 @@ def main() -> None:
         default="data/input/functions_definition.json"
     )
     parser.add_argument(
-        "--output", default="data/output/function_calling_results.json"
+        "--output", default="data/output/function_calls.json"
     )
     args = parser.parse_args()
     try:

@@ -3,7 +3,7 @@
 # Pass command-line options with: make run ARGS="--input path/to/prompts.json"
 ARGS ?=
 GOINFRE ?= 1
-GOINFRE_ROOT ?= /home/acoromin/goinfre/call_me_maybe
+GOINFRE_ROOT ?= $(HOME)/goinfre/call_me_maybe
 FLAKE8_EXCLUDE := .git,.venv,__pycache__,.mypy_cache
 FLAKE8_EXCLUDE := $(FLAKE8_EXCLUDE),.pytest_cache,.ruff_cache
 FLAKE8_EXCLUDE := $(FLAKE8_EXCLUDE),llm_sdk
