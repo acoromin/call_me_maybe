@@ -93,7 +93,7 @@ def main() -> None:
                         + retry_context
                         + "<|im_end|>\n"
                     )
-                constrained.demo = i == 1
+                constrained.demo = True
                 progress = f"[{i}/{len(prompts)}] Prompt: {prompt.prompt}\n"
                 constrained.show(progress)
                 user_message = (

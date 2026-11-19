@@ -15,7 +15,10 @@ def _decoder() -> ConstrainedDecoder:
     return object.__new__(ConstrainedDecoder)
 
 
-def _boolean_decoder(true_score: float, false_score: float) -> ConstrainedDecoder:
+def _boolean_decoder(
+        true_score: float,
+        false_score: float,
+        ) -> ConstrainedDecoder:
     """Supply controlled logits instead of executing a real LLM."""
     decoder = _decoder()
     model = Mock()
@@ -165,7 +168,7 @@ def test_valid_output() -> None:
         "parameters": {"level": 3, "enabled": True},
     }
 
-    assert decoder.validate_output(result) is None
+    decoder.validate_output(result)
 
 
 def test_output_with_extra_field() -> None:

@@ -3,40 +3,39 @@ import pytest
 from pathlib import Path
 
 
-def test_valid_prompts(tmp_path) -> None:
+def test_valid_prompts(tmp_path: Path) -> None:
     file = tmp_path / "prompts.json"
     file.write_text('[{"prompt": "Hello"}]')
     prompts = load_prompts(str(file))
     assert len(prompts) == 1
 
 
-def test_empty_prompts(tmp_path) -> None:
+def test_empty_prompts(tmp_path: Path) -> None:
     file = tmp_path / "prompts.json"
     file.write_text('[{"prompt": ""}]')
     with pytest.raises(ValueError):
         load_prompts(str(file))
 
 
-def test_missing_prompt_field(tmp_path) -> None:
+def test_missing_prompt_field(tmp_path: Path) -> None:
     file = tmp_path / "prompts.json"
     file.write_text('[{"": "Hello"}]')
     with pytest.raises(ValueError):
         load_prompts(str(file))
 
 
-def test_invalid_prompt_type(tmp_path) -> None:
+def test_invalid_prompt_type(tmp_path: Path) -> None:
     file = tmp_path / "prompts.json"
     file.write_text('[{"prompt": 123}]')
     with pytest.raises(ValueError):
         load_prompts(str(file))
 
 
-def test_invalid_json_prompt(tmp_path) -> None:
+def test_invalid_json_prompt(tmp_path: Path) -> None:
     file = tmp_path / "prompts.json"
     file.write_text('[{"prompt": "Hello"}')
     with pytest.raises(ValueError):
         load_prompts(str(file))
-
 
 
 def test_valid_functions(tmp_path: Path) -> None:
