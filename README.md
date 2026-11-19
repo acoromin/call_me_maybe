@@ -36,18 +36,34 @@ uv run python -m src \
   --output data/output/function_calling_results.json
 ```
 
-`make install` and `make run` provide shortcuts. To pass paths through Make, use
-`make run ARGS="--input path/to/prompts.json --functions_definition path/to/functions.json --output path/to/results.json"`.
-`make debug` runs the program under `pdb`; `make clean` removes Python caches; and
-`make lint` runs flake8 and mypy. The Makefile defaults to `GOINFRE=1` and stores
-the virtual environment and caches under `/home/acoromin/sgoinfre/call_me_maybe`.
-Set `GOINFRE_ROOT` to use a different location, or `GOINFRE=0` to use the project
-environment.
+`make install` and `make run` provide shortcuts. To pass paths through Make, use:
 
-During a run, the first prompt displays a short demonstration of token IDs, the
-restricted function-name choice, and decoded values. Later prompts display progress
-and their completed JSON without the detailed trace. This display goes to standard
-error; the complete array is written to the output file after all prompts finish.
+```sh
+make run ARGS="--input path/to/prompts.json --functions_definition path/to/functions.json --output path/to/results.json"
+```
+
+`make debug` runs the program under `pdb`; `make clean` removes Python caches;
+`make lint` runs flake8 and mypy; and `make test` runs the pytest unit tests.
+
+The Makefile defaults to `GOINFRE=1`, storing the virtual environment, uv cache,
+and Hugging Face cache outside the project under
+`/home/acoromin/goinfre/call_me_maybe`. Set `GOINFRE_ROOT` for a different
+location or use `GOINFRE=0` for a normal local project environment. For example,
+on a machine without the 42 goinfre directory:
+
+```sh
+make install GOINFRE=0
+make run GOINFRE=0
+make test GOINFRE=0
+```
+
+During a run, **every prompt** displays a token-level demonstration: an encoded-input
+summary, the constrained function-name selection when choices exist, the selected
+function, generated argument values, token IDs and their decoded text, and the
+completed JSON object. Progress and visualization go to standard error; the complete
+JSON array is saved to the output file after all prompts finish. The demonstration
+uses information already produced during generation and does not request extra
+model inference solely for display.
 
 ## Example usage
 
@@ -96,10 +112,11 @@ and decisions already produced during generation; it adds no model inference cal
 ## Performance and reliability
 
 The stored output for the 11 supplied public prompts was checked against the
-expected calls and gave 11/11 correct results. Runs of this set on the development
-laptop took roughly 75–80 seconds. A run on a 42 machine took about two and a half
-minutes, below the five-minute target. Hardware, model download, and input size
-affect the time.
+expected calls and gave 11/11 correct results. Previous runs on the development
+laptop took roughly 75–80 seconds; a 42 machine initially took approximately
+2–2.5 minutes, and a more recent run was reported at about 1 minute 55 seconds.
+These are observed runs, not a controlled benchmark. Hardware, cache location,
+model download, and input size can affect timings.
 
 Constrained candidates and final JSON serialization reduce malformed output. These
 measurements do not prove perfect accuracy or valid output for every possible
@@ -122,71 +139,83 @@ implemented in the numeric prefix validator.
 
 ## Testing strategy
 
-Run the eight checks in `tests/test_callme.py` with:
+Run the unit-test suite with:
 
 ```sh
 make test
 ```
 
-Seven checks use the real model against the supplied public inputs and the additional
-integer/boolean inputs in `tests/`. They cover booleans, numbers, integers, strings,
-regex behavior, input validation, and output structure. The two model runs are
-shared across those checks. One separate check simulates a generation failure and
-verifies that the retry receives the error, produces one result, and does not pass
-the error to the next prompt. It does not load Qwen. Manual checks also included
-malformed JSON, unavailable input files, and output write errors.
+The suite uses **pytest** and **pytest-sugar** and currently contains **45 passing
+test cases**, grouped into three files:
 
-The test suite expects `tests/prompts_test.json` and `tests/function_test.json` to
-be present. Tests can take around two minutes on the development laptop because
-they run real inference.
+| File | Cases | What it tests |
+| --- | ---: | --- |
+| `tests/test_parser.py` | 11 | Valid and invalid JSON input, missing fields, types, duplicate function names, and file errors |
+| `tests/test_constraints.py` | 30 | Numeric prefixes, JSON string state transitions, function-name constraints, boolean selection, and final-output validation |
+| `tests/test_recovery.py` | 4 | No retry, successful retry, two failed attempts, and retry feedback |
 
-To demonstrate only the retry check without loading the model, run:
+The 45 cases ran in approximately **3.29 seconds** in one development run. They do
+**not** execute Qwen inference. The constraints tests call validation methods
+directly and use controlled logits where required. The recovery tests substitute a
+lightweight fake model and decoder generation methods while executing the real
+application retry loop.
+
+This separation makes the tests fast and deterministic. It does **not** replace
+end-to-end runs with the actual model: unit tests validate specific rules and
+control flow, whereas real-model runs assess integrated generation quality,
+accuracy, and timing. The unit suite does not claim 100% code coverage.
+
+To run only one group:
 
 ```sh
-uv run python -m unittest discover -s tests -p 'test_callme.py' -k retry -v
+uv run python -m pytest tests/test_parser.py -v
+uv run python -m pytest tests/test_constraints.py -v
+uv run python -m pytest tests/test_recovery.py -v
 ```
+
+On 42 machines, use `make test` to inherit the goinfre cache and environment
+configuration from the Makefile.
 
 ## Bonus features
 
-- **Visualization of the generation process:** Run `uv run python -m src`. Each
-  prompt shows its request and completed JSON. The first prompt also shows the
-  selected function, generated parameters, and a short token-level trace; later
-  prompts omit that detail to keep the display readable. Progress goes to
-  standard error, while the complete JSON array is written to the output file.
+- **Visualization of the generation process:** Run `uv run python -m src` or
+  `make run`. **Every prompt** displays its request, selected function, parameter
+  values, token-level trace, and completed JSON. Progress goes to standard error;
+  the JSON array is written to the output file.
 - **Demonstration of how encoding and decoding integrate with constrained decoding:**
-  During the first prompt, the same run shows a sample of encoded input IDs,
-  the allowed next IDs for function selection, the selected ID, and generated
-  IDs beside their decoded text. This displays decisions already made during
-  generation and adds no model inference calls.
+  Each prompt shows a short sample of encoded input IDs, constrained function-name
+  decisions where applicable, and generated IDs beside their decoded text.
+  The trace reuses decisions already made during generation; no additional model
+  inference is requested for visualization.
 - **Performance optimizations:** Vocabulary token IDs and text are indexed once,
   so generation need not decode each candidate repeatedly. Valid string IDs are
   cached by parser state. Shared function-name tokens and the remainder of a
   single candidate are appended without asking the model for more logits. These
-  optimizations do not use batching; the 42 run took about two and a half minutes.
-- **Comprehensive test suite:** `make test` runs eight checks in one file. Seven
-  inspect two shared real-model runs; the retry check uses a simulated failure so
-  it is deterministic. Use the retry-only command above to demonstrate that
-  branch quickly during an evaluation.
+  optimizations do not use batching. Execution time depends on the machine and
+  the model cache.
+- **Comprehensive test suite:** `make test` runs **45 pytest cases** across the parser,
+  constrained-decoding rules, and retry control flow. They run without loading
+  Qwen and use simulated model behavior only where necessary. Full generation
+  must still be assessed with a separate real-model run.
 - **Advanced error recovery mechanisms:** Each prompt allows up to two attempts.
   If generation or output validation raises `ValueError`, the second attempt starts
   with a fresh token context and adds the first error to the model instructions.
   Errors do not carry over to the next prompt. If both attempts fail, the program
-  reports the error instead of writing a partial output file. A normal run shows
-  no retry messages; a failed attempt prints `Generation failed: ...` before the
-  prompt is attempted again. The retry test verifies this control flow, not that
-  Qwen can correct every mistaken argument value.
+  reports the error instead of writing a partial output file. A failed attempt
+  prints `Generation failed: ...` before the retry. The four recovery tests verify
+  control flow and feedback, not that Qwen can correct every semantic mistake.
 
 ## Resources
 
 - [Flexible and Efficient Grammar-Constrained Decoding](https://proceedings.mlr.press/v267/park25l.html): background on restricting model outputs with a grammar and tokenizer-aware token masks.
 - [Python `json` documentation](https://docs.python.org/3/library/json.html): JSON parsing and serialization.
-- [Python `unittest` documentation](https://docs.python.org/3/library/unittest.html): test cases and shared setup.
-- [Pydantic model documentation](https://pydantic.dev/docs/validation/latest/concepts/models/): validation of input data.
+- [pytest documentation](https://docs.pytest.org/en/stable/): unit tests, parametrization, fixtures, and mocking/monkeypatching.
+- [Pydantic model documentation](https://docs.pydantic.dev/latest/concepts/models/): validation of input data.
 - [uv project documentation](https://docs.astral.sh/uv/guides/projects/): environments, dependency locking, and running the project.
 - [Hugging Face tokenizer documentation](https://huggingface.co/docs/transformers/main_classes/tokenizer): the relationship between token IDs and decoded text.
 
 AI assistance was used to discuss and review the constrained-decoding logic in
-`src/constraints.py`, investigate tokenization and JSON edge cases, and compare
-generated outputs with expected calls. It also helped draft and simplify
-`tests/test_callme.py`, configure the `Makefile`, and draft this README. The work
-was checked through code review and executions with the supplied Qwen model.
+`src/constraints.py`, investigate tokenization and JSON edge cases, design and draft
+the pytest tests, configure the `Makefile`, and draft this README. The work was
+reviewed and checked through local tests and executions with the supplied Qwen
+model.
